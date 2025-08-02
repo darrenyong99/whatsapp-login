@@ -13,9 +13,22 @@
       register: bot_names
       changed_when: false
 
+    - name: Ensure bot_names.stdout_lines is at least an empty list
+      set_fact:
+        safe_bot_names: "{{ bot_names.stdout_lines | default([]) }}"
+
     - name: Determine next bot number
       set_fact:
-        next_bot_number: "{{ (bot_names.stdout_lines | map('regex_replace', '^' ~ base_name ~ '([0-9]*)$', '\\1') | map('int') | default([0]) | max) + 1 }}"
+        next_bot_number: >-
+          {{
+            (safe_bot_names
+              | map('regex_search', '^' ~ base_name ~ '([0-9]+)$')
+              | select('string')
+              | map('int')
+              | list
+              | default([0])
+              | max) + 1
+          }}
 
     - name: Set new bot name and port
       set_fact:
