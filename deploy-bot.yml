@@ -15,25 +15,26 @@
       register: bot_names
       changed_when: false
 
-    - name: Ensure bot_names.stdout_lines is at least an empty list
+    - name: Ensure bot_names.stdout_lines is a list
       set_fact:
-        existing_bots: "{{ bot_names.stdout_lines | default([]) }}"
+        existing_bots: "{{ bot_names.stdout_lines if bot_names.stdout_lines is defined else [] }}"
 
-    - name: Determine next bot number
+    - name: Extract existing bot numbers
       set_fact:
-        next_number: >-
+        existing_bot_numbers: >-
           {{
             existing_bots
             | select('match', '^' ~ base_name ~ '\\d+$')
             | map('regex_replace', '^' ~ base_name, '')
             | map('int')
             | list
-            | default([0])
-            | max
-            | int + 1
           }}
 
-    - name: Calculate next bot name and port
+    - name: Set next bot number (handle empty case)
+      set_fact:
+        next_number: "{{ (existing_bot_numbers | max) + 1 if existing_bot_numbers | length > 0 else 1 }}"
+
+    - name: Calculate bot name and port
       set_fact:
         next_bot_name: "{{ base_name }}{{ next_number }}"
         next_bot_port: "{{ port_start + next_number - 1 }}"
