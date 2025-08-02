@@ -1,49 +1,53 @@
 ---
 - name: Auto-create next WhatsApp bot container
   hosts: localhost
+  connection: local
   gather_facts: yes
+
   vars:
-    base_name: whatsapp-bot
-    port_start: 3000
     image_name: whatsapp-bot-api-whatsapp-bot
+    base_name: client
+    base_port: 3000
 
   tasks:
     - name: Get list of existing bot containers
-      command: docker ps -a --format '{{"{{.Names}}"}}'
+      command: docker ps -a --format '{{ "{{.Names}}" }}'
       register: bot_names
       changed_when: false
 
     - name: Ensure bot_names.stdout_lines is at least an empty list
       set_fact:
-        container_names: "{{ bot_names.stdout_lines | default([]) }}"
+        container_list: "{{ bot_names.stdout_lines if bot_names.stdout_lines is defined else [] }}"
 
     - name: Determine next bot number
       set_fact:
-        existing_bot_numbers: >-
-          {{
-            container_names
-            | select('match', '^' + base_name + '[0-9]+$')
-            | map('regex_replace', '^' + base_name, '')
-            | map('int')
-            | list
-          }}
-
-    - name: Set next bot number (handle empty case)
-      set_fact:
-        next_number: "{{ ((existing_bot_numbers | max) + 1) if existing_bot_numbers | length > 0 else 1 | int }}"
+        next_number: >-
+          {% set max = 0 %}
+          {% for name in container_list %}
+            {% if name.startswith(base_name) %}
+              {% set num = name | regex_replace(base_name, '') | int %}
+              {% if num > max %}
+                {% set max = num %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ max + 1 }}
 
     - name: Calculate bot name and port
       set_fact:
-        next_bot_name: "{{ base_name }}{{ next_number }}"
-        next_bot_port: "{{ port_start + (next_number | int) - 1 }}"
+        bot_name: "{{ base_name }}{{ next_number }}"
+        bot_port: "{{ base_port + (next_number | int) - 1 }}"
 
     - name: Create and run new WhatsApp bot container
       community.docker.docker_container:
-        name: "{{ next_bot_name }}"
+        name: "{{ bot_name }}"
         image: "{{ image_name }}"
-        state: started
-        restart_policy: always
+        restart_policy: unless-stopped
         published_ports:
-          - "{{ next_bot_port }}:3000"
+          - "{{ bot_port }}:3000"
         volumes:
-          - "/root/clients/{{ next_bot_name }}/session:/app/.wwebjs_auth"
+          - "/root/{{ bot_name }}/.wwebjs_auth:/app/.wwebjs_auth"
+        env:
+          TZ: Asia/Kuala_Lumpur
+      vars:
+        ansible_python_interpreter: /usr/bin/python3
