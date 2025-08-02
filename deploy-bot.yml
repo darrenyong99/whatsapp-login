@@ -1,0 +1,40 @@
+---
+- name: Deploy new WhatsApp bot container with dynamic name
+  hosts: localhost
+  gather_facts: no
+  vars:
+    base_name: client
+    image_name: whatsapp-bot-api-whatsapp-bot
+    base_port: 3000
+
+  tasks:
+    - name: Get list of existing bot containers
+      shell: docker ps -a --format '{{.Names}}' | grep '^{{ base_name }}' || true
+      register: existing_bots
+      changed_when: false
+
+    - name: Calculate next bot index
+      set_fact:
+        next_index: "{{ (existing_bots.stdout_lines | map('regex_replace', base_name, '') | map('int') | default([0]) | max) + 1 }}"
+
+    - name: Define container name and port
+      set_fact:
+        new_container_name: "{{ base_name }}{{ next_index }}"
+        mapped_port: "{{ base_port + next_index }}"
+
+    - name: Create session directory
+      file:
+        path: "./sessions/{{ new_container_name }}"
+        state: directory
+        mode: '0755'
+
+    - name: Run new WhatsApp bot container
+      community.docker.docker_container:
+        name: "{{ new_container_name }}"
+        image: "{{ image_name }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ mapped_port }}:3000"
+        volumes:
+          - "./sessions/{{ new_container_name }}:/app/.wwebjs_auth"
