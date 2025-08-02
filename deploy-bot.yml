@@ -1,40 +1,43 @@
 ---
-- name: Deploy new WhatsApp bot container with dynamic name
+- name: Automatically create next available WhatsApp bot container
   hosts: localhost
-  gather_facts: no
+  become: yes
   vars:
     base_name: client
     image_name: whatsapp-bot-api-whatsapp-bot
-    base_port: 3000
+    port_base: 3000
 
   tasks:
     - name: Get list of existing bot containers
-      shell: docker ps -a --format '{{.Names}}' | grep '^{{ base_name }}' || true
+      shell: >
+        docker ps -a --format '{{"{{"}}.Names{{"}}"}}' | grep "^{{ base_name }}" || true
       register: existing_bots
       changed_when: false
 
-    - name: Calculate next bot index
+    - name: Extract next available index
       set_fact:
-        next_index: "{{ (existing_bots.stdout_lines | map('regex_replace', base_name, '') | map('int') | default([0]) | max) + 1 }}"
+        next_index: >-
+          {{
+            ((existing_bots.stdout_lines | map('regex_search', base_name ~ '([0-9]+)', '\\1') | map('int') | list | max) + 1)
+              if existing_bots.stdout_lines else 1
+          }}
 
-    - name: Define container name and port
+    - name: Define next bot name and port
       set_fact:
-        new_container_name: "{{ base_name }}{{ next_index }}"
-        mapped_port: "{{ base_port + next_index }}"
-
-    - name: Create session directory
-      file:
-        path: "./sessions/{{ new_container_name }}"
-        state: directory
-        mode: '0755'
+        bot_name: "{{ base_name }}{{ next_index }}"
+        port: "{{ port_base + next_index }}"
 
     - name: Run new WhatsApp bot container
-      community.docker.docker_container:
-        name: "{{ new_container_name }}"
+      docker_container:
+        name: "{{ bot_name }}"
         image: "{{ image_name }}"
         state: started
-        restart_policy: always
-        ports:
-          - "{{ mapped_port }}:3000"
+        restart_policy: unless-stopped
+        published_ports:
+          - "{{ port }}:3000"
         volumes:
-          - "./sessions/{{ new_container_name }}:/app/.wwebjs_auth"
+          - "/root/{{ bot_name }}:/app/.wwebjs_auth"
+
+    - name: Print container info
+      debug:
+        msg: "✅ Started WhatsApp bot container '{{ bot_name }}' on port {{ port }}"
